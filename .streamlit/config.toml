@@ -1,6 +1,6 @@
 [server]
 headless = true
-port = $PORT
+port = "${PORT}"
 enableCORS = false
 enableXsrfProtection = false
 
@@ -10,4 +10,3 @@ backgroundColor = "#F5F5F5"
 secondaryBackgroundColor = "#E0E0E0"
 textColor = "#262730"
 font = "sans serif"
-
