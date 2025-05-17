@@ -127,11 +127,11 @@ img_file = st.file_uploader("Imagem do gabarito respondido:", type=["jpg", "jpeg
 
 if img_file:
     file_bytes = np.asarray(bytearray(img_file.read()), dtype=np.uint8)
-    img_raw = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-    if img_raw is None:
-        st.error("Erro ao carregar imagem.")
+    img_bgr = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+    if img_bgr is None:
+        st.error("Erro ao carregar a imagem. Tente novamente com outro arquivo.")
     else:
-        st.image(cv2.cvtColor(img_raw, cv2.COLOR_BGR2RGB), caption="Imagem Original", use_container_width=True)
+        img_corrigida = detectar_orientacao(img_bgr)
         img_alinhada = detectar_e_corrigir_roi(img_raw)
         st.image(cv2.cvtColor(img_alinhada, cv2.COLOR_BGR2RGB), caption="Imagem Alinhada", use_container_width=True)
 
