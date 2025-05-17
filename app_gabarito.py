@@ -45,14 +45,13 @@ def gerar_pdf(df):
     for _, row in df.iterrows():
         linha = f"Questão {row['Questão']}: Gabarito {row['Gabarito']} - Resposta {row['Resposta']} - {row['Resultado']}"
         pdf.cell(0, 8, linha, ln=True)
-    return pdf.output(dest="S").encode("latin-1")
+    return pdf.output(dest="S")  # Corrigido: sem .encode('latin-1')
 
-# Função para detectar bolhas preenchidas por colunas com heurística
-
+# Função para detectar bolhas preenchidas por colunas com heurística refinada
 def detectar_respostas_por_coluna(imagem, num_questoes):
     gray = cv2.cvtColor(imagem, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    thresh = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 11, 2)
+    thresh = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 11, 2)
 
     height, width = thresh.shape
     respostas = []
@@ -70,21 +69,20 @@ def detectar_respostas_por_coluna(imagem, num_questoes):
 
         for q in range(questoes_por_coluna):
             questao_idx = i * questoes_por_coluna + q + 1
-            medias = []
+            intensidades = []
             for a in range(5):
                 x1 = a * alt_w
                 y1 = q * alt_h
                 bolha = coluna[y1:y1 + alt_h, x1:x1 + alt_w]
-                media = np.mean(bolha)
-                medias.append((a, media))
+                preenchimento = np.sum(bolha == 255)
+                intensidades.append(preenchimento)
 
-            min_media = min(medias, key=lambda x: x[1])[1]
-            diffs = [m[1] - min_media for m in medias]
-            preenchidas = [alternativas[i] for i, d in enumerate(diffs) if d < 25]  # Sensibilidade ajustável
+            max_fill = max(intensidades)
+            marcadas = [alternativas[a] for a, f in enumerate(intensidades) if f >= max_fill * 0.85]
 
-            if len(preenchidas) == 1:
-                resposta = preenchidas[0]
-            elif len(preenchidas) > 1:
+            if len(marcadas) == 1:
+                resposta = marcadas[0]
+            elif len(marcadas) > 1:
                 resposta = "MULTIPLA"
             else:
                 resposta = "-"
@@ -115,7 +113,7 @@ if resp_file:
     img_bgr = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
     img_corrigida = detectar_orientacao(img_bgr)
 
-    st.image(cv2.cvtColor(img_corrigida, cv2.COLOR_BGR2RGB), caption="Gabarito Respondido", use_column_width=True)
+    st.image(cv2.cvtColor(img_corrigida, cv2.COLOR_BGR2RGB), caption="Gabarito Respondido", use_container_width=True)
     st.info("🔍 Detectando bolhas preenchidas...")
 
     respostas_detectadas = detectar_respostas_por_coluna(img_corrigida, num_questoes)
@@ -128,14 +126,14 @@ if resp_file:
         else:
             resp = "-"
         certo = gabarito_base[i]
-        resultado = "CERTO" if resp == certo else "ERRADO"
-        if resp == "MULTIPLA": resultado = "ERRADO (Múltipla)"
+        resultado = "CORRETA" if resp == certo else "INCORRETA"
+        if resp == "MULTIPLA": resultado = "INCORRETA (Múltipla)"
         resultados.append({"Questão": questao, "Gabarito": certo, "Resposta": resp, "Resultado": resultado})
 
     df_resultados = pd.DataFrame(resultados)
     st.subheader("📊 Resultado da Correção")
     st.dataframe(df_resultados, use_container_width=True)
-    st.success(f"Total de acertos: {df_resultados['Resultado'].str.contains('CERTO').sum()} / {num_questoes}")
+    st.success(f"Total de acertos: {df_resultados['Resultado'].str.contains('CORRETA').sum()} / {num_questoes}")
 
 # Etapa 3: Exportação
 if df_resultados is not None:
