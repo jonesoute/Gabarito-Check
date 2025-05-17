@@ -111,9 +111,12 @@ resp_file = st.file_uploader("Selecione a imagem do gabarito respondido:", type=
 if resp_file:
     file_bytes = np.asarray(bytearray(resp_file.read()), dtype=np.uint8)
     img_bgr = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+if img_bgr is None:
+    st.error("Erro ao carregar a imagem. Tente novamente com outro arquivo.")
+else:
     img_corrigida = detectar_orientacao(img_bgr)
-
     st.image(cv2.cvtColor(img_corrigida, cv2.COLOR_BGR2RGB), caption="Gabarito Respondido", use_container_width=True)
+
     st.info("🔍 Detectando bolhas preenchidas...")
 
     respostas_detectadas = detectar_respostas_por_coluna(img_corrigida, num_questoes)
