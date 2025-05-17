@@ -6,6 +6,7 @@ from PIL import Image
 from fpdf import FPDF
 import base64
 import io
+import os
 
 # Configuração da página
 st.set_page_config(page_title="App Gabarito", layout="centered")
@@ -29,15 +30,21 @@ def detectar_orientacao(imagem):
     elif tl + bl >= 2: return cv2.rotate(imagem, cv2.ROTATE_90_CLOCKWISE)
     return imagem
 
-# Função para gerar PDF
+# Função para gerar PDF com suporte a Unicode
 def gerar_pdf(df):
     pdf = FPDF()
     pdf.add_page()
-    pdf.set_font("Arial", size=12)
-    pdf.cell(0, 10, "Resultado da Correção", ln=True, align='C')
+    font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+    if os.path.exists(font_path):
+        pdf.add_font("DejaVu", "", font_path, uni=True)
+        pdf.set_font("DejaVu", "", 12)
+    else:
+        pdf.set_font("Helvetica", size=12)
+    pdf.cell(0, 10, "Resultado da Correção", ln=True)
     pdf.ln(5)
     for _, row in df.iterrows():
-        pdf.cell(0, 8, f"Questão {row['Questão']}: Gabarito {row['Gabarito']} - Resposta {row['Resposta']} - {row['Resultado']}", ln=True)
+        linha = f"Questão {row['Questão']}: Gabarito {row['Gabarito']} - Resposta {row['Resposta']} - {row['Resultado']}"
+        pdf.cell(0, 8, linha, ln=True)
     return pdf.output(dest="S").encode("latin-1")
 
 # Função para detectar bolhas preenchidas por colunas
@@ -49,7 +56,6 @@ def detectar_respostas_por_coluna(imagem, num_questoes):
     height, width = thresh.shape
     respostas = []
 
-    # Definir número de colunas (automático para 4 colunas)
     colunas = 4
     questoes_por_coluna = num_questoes // colunas
     alternativas = ["A", "B", "C", "D", "E"]
@@ -71,10 +77,13 @@ def detectar_respostas_por_coluna(imagem, num_questoes):
                 media = np.mean(bolha)
                 if media < 127:
                     if preenchida:
-                        preenchida = "MULTIPLA"  # marcação dupla
+                        preenchida = "MULTIPLA"
                     else:
                         preenchida = alternativas[a]
             respostas.append({"questao": questao_idx, "resposta": preenchida if preenchida else "-"})
+
+    while len(respostas) < num_questoes:
+        respostas.append({"questao": len(respostas)+1, "resposta": "-"})
 
     return respostas
 
@@ -102,11 +111,13 @@ if resp_file:
 
     respostas_detectadas = detectar_respostas_por_coluna(img_corrigida, num_questoes)
 
-    # Comparação com gabarito base
     resultados = []
     for i in range(num_questoes):
         questao = i + 1
-        resp = respostas_detectadas[i]["resposta"]
+        if i < len(respostas_detectadas):
+            resp = respostas_detectadas[i]["resposta"]
+        else:
+            resp = "-"
         certo = gabarito_base[i]
         resultado = "✅" if resp == certo else "❌"
         if resp == "MULTIPLA": resultado = "❌ (Múltipla)"
