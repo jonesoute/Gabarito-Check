@@ -47,17 +47,22 @@ def gerar_pdf(df):
         pdf.cell(0, 8, linha, ln=True)
     return pdf.output(dest="S")
 
-# Função para detectar bolhas preenchidas por colunas com heurística refinada
-def detectar_respostas_por_coluna(imagem, num_questoes):
+# Função para detectar bolhas preenchidas com contraste ajustável e colunas automáticas
+def detectar_respostas_por_coluna(imagem, num_questoes, colunas=0, contraste=11):
+    original = imagem.copy()
     gray = cv2.cvtColor(imagem, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    thresh = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 11, 2)
+    thresh = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, contraste, 2)
 
     height, width = thresh.shape
     respostas = []
 
-    colunas = 4
-    questoes_por_coluna = num_questoes // colunas
+    if colunas == 0:
+        # Tenta inferir número de colunas pela largura
+        aprox_altura_questao = 30
+        colunas = max(1, width // 300)
+
+    questoes_por_coluna = num_questoes // colunas + (num_questoes % colunas > 0)
     alternativas = ["A", "B", "C", "D", "E"]
 
     for i in range(colunas):
@@ -69,6 +74,8 @@ def detectar_respostas_por_coluna(imagem, num_questoes):
 
         for q in range(questoes_por_coluna):
             questao_idx = i * questoes_por_coluna + q + 1
+            if questao_idx > num_questoes:
+                continue
             intensidades = []
             for a in range(5):
                 x1 = a * alt_w
@@ -89,24 +96,32 @@ def detectar_respostas_por_coluna(imagem, num_questoes):
 
             respostas.append({"questao": questao_idx, "resposta": resposta})
 
+            for a in range(5):
+                cx = x_ini + a * alt_w + alt_w // 2
+                cy = q * alt_h + alt_h // 2
+                cor = (0, 255, 0) if alternativas[a] in marcadas else (0, 0, 255)
+                cv2.circle(original, (cx, cy), 10, cor, 2)
+                cv2.putText(original, f"{questao_idx}{alternativas[a]}", (cx - 20, cy - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+
     while len(respostas) < num_questoes:
         respostas.append({"questao": len(respostas)+1, "resposta": "-"})
 
-    return respostas
+    return respostas, original
 
 # Etapa 1: Cadastro do Gabarito Base
 st.header("1️⃣ Defina o Gabarito Base (Tabela)")
 num_questoes = st.number_input("Número total de questões:", min_value=1, max_value=200, step=1, value=26)
-
-gabarito_base = []
-for i in range(1, num_questoes + 1):
-    alternativa = st.selectbox(f"Questão {i} - Alternativa correta:", ["A", "B", "C", "D", "E"], key=f"q{i}")
-    gabarito_base.append(alternativa)
+contraste = st.slider("🔧 Nível de Contraste (ajuste para marcações fracas)", 1, 25, 11, 2)
 
 # Etapa 2: Upload do gabarito respondido
 df_resultados = None
 st.header("2️⃣ Upload do Gabarito Respondido")
 resp_file = st.file_uploader("Selecione a imagem do gabarito respondido:", type=["jpg", "jpeg", "png"])
+
+gabarito_base = []
+for i in range(1, num_questoes + 1):
+    alternativa = st.selectbox(f"Questão {i} - Alternativa correta:", ["A", "B", "C", "D", "E"], key=f"q{i}")
+    gabarito_base.append(alternativa)
 
 if resp_file:
     file_bytes = np.asarray(bytearray(resp_file.read()), dtype=np.uint8)
@@ -118,7 +133,9 @@ if resp_file:
         st.image(cv2.cvtColor(img_corrigida, cv2.COLOR_BGR2RGB), caption="Gabarito Respondido", use_container_width=True)
         st.info("🔍 Detectando bolhas preenchidas...")
 
-        respostas_detectadas = detectar_respostas_por_coluna(img_corrigida, num_questoes)
+        respostas_detectadas, imagem_anotada = detectar_respostas_por_coluna(img_corrigida, num_questoes, contraste=contraste)
+
+        st.image(cv2.cvtColor(imagem_anotada, cv2.COLOR_BGR2RGB), caption="Visualização das Bolhas Detectadas", use_container_width=True)
 
         resultados = []
         for i in range(num_questoes):
