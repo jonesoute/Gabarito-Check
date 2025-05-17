@@ -111,32 +111,31 @@ resp_file = st.file_uploader("Selecione a imagem do gabarito respondido:", type=
 if resp_file:
     file_bytes = np.asarray(bytearray(resp_file.read()), dtype=np.uint8)
     img_bgr = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-if img_bgr is None:
-    st.error("Erro ao carregar a imagem. Tente novamente com outro arquivo.")
-else:
-    img_corrigida = detectar_orientacao(img_bgr)
-    st.image(cv2.cvtColor(img_corrigida, cv2.COLOR_BGR2RGB), caption="Gabarito Respondido", use_container_width=True)
+    if img_bgr is None:
+        st.error("Erro ao carregar a imagem. Tente novamente com outro arquivo.")
+    else:
+        img_corrigida = detectar_orientacao(img_bgr)
+        st.image(cv2.cvtColor(img_corrigida, cv2.COLOR_BGR2RGB), caption="Gabarito Respondido", use_container_width=True)
+        st.info("🔍 Detectando bolhas preenchidas...")
 
-    st.info("🔍 Detectando bolhas preenchidas...")
+        respostas_detectadas = detectar_respostas_por_coluna(img_corrigida, num_questoes)
 
-    respostas_detectadas = detectar_respostas_por_coluna(img_corrigida, num_questoes)
+        resultados = []
+        for i in range(num_questoes):
+            questao = i + 1
+            if i < len(respostas_detectadas):
+                resp = respostas_detectadas[i]["resposta"]
+            else:
+                resp = "-"
+            certo = gabarito_base[i]
+            resultado = "CORRETA" if resp == certo else "INCORRETA"
+            if resp == "MULTIPLA": resultado = "INCORRETA (Múltipla)"
+            resultados.append({"Questão": questao, "Gabarito": certo, "Resposta": resp, "Resultado": resultado})
 
-    resultados = []
-    for i in range(num_questoes):
-        questao = i + 1
-        if i < len(respostas_detectadas):
-            resp = respostas_detectadas[i]["resposta"]
-        else:
-            resp = "-"
-        certo = gabarito_base[i]
-        resultado = "CORRETA" if resp == certo else "INCORRETA"
-        if resp == "MULTIPLA": resultado = "INCORRETA (Múltipla)"
-        resultados.append({"Questão": questao, "Gabarito": certo, "Resposta": resp, "Resultado": resultado})
-
-    df_resultados = pd.DataFrame(resultados)
-    st.subheader("📊 Resultado da Correção")
-    st.dataframe(df_resultados, use_container_width=True)
-    st.success(f"Total de acertos: {df_resultados['Resultado'].str.contains('CORRETA').sum()} / {num_questoes}")
+        df_resultados = pd.DataFrame(resultados)
+        st.subheader("📊 Resultado da Correção")
+        st.dataframe(df_resultados, use_container_width=True)
+        st.success(f"Total de acertos: {df_resultados['Resultado'].str.contains('CORRETA').sum()} / {num_questoes}")
 
 # Etapa 3: Exportação
 if df_resultados is not None:
