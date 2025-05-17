@@ -30,14 +30,14 @@ def detectar_orientacao(imagem):
     elif tl + bl >= 2: return cv2.rotate(imagem, cv2.ROTATE_90_CLOCKWISE)
     return imagem
 
-# Função para gerar PDF com suporte a Unicode
+# Função para gerar PDF com suporte a Unicode (sem emojis)
 def gerar_pdf(df):
     pdf = FPDF()
     pdf.add_page()
     font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
     if os.path.exists(font_path):
         pdf.add_font("DejaVu", "", font_path, uni=True)
-        pdf.set_font("DejaVu", "", 12)
+        pdf.set_font("DejaVu", size=12)
     else:
         pdf.set_font("Helvetica", size=12)
     pdf.cell(0, 10, "Resultado da Correção", ln=True)
@@ -47,7 +47,8 @@ def gerar_pdf(df):
         pdf.cell(0, 8, linha, ln=True)
     return pdf.output(dest="S").encode("latin-1")
 
-# Função para detectar bolhas preenchidas por colunas
+# Função para detectar bolhas preenchidas por colunas com heurística
+
 def detectar_respostas_por_coluna(imagem, num_questoes):
     gray = cv2.cvtColor(imagem, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
@@ -69,18 +70,26 @@ def detectar_respostas_por_coluna(imagem, num_questoes):
 
         for q in range(questoes_por_coluna):
             questao_idx = i * questoes_por_coluna + q + 1
-            preenchida = ""
+            medias = []
             for a in range(5):
                 x1 = a * alt_w
                 y1 = q * alt_h
                 bolha = coluna[y1:y1 + alt_h, x1:x1 + alt_w]
                 media = np.mean(bolha)
-                if media < 127:
-                    if preenchida:
-                        preenchida = "MULTIPLA"
-                    else:
-                        preenchida = alternativas[a]
-            respostas.append({"questao": questao_idx, "resposta": preenchida if preenchida else "-"})
+                medias.append((a, media))
+
+            min_media = min(medias, key=lambda x: x[1])[1]
+            diffs = [m[1] - min_media for m in medias]
+            preenchidas = [alternativas[i] for i, d in enumerate(diffs) if d < 25]  # Sensibilidade ajustável
+
+            if len(preenchidas) == 1:
+                resposta = preenchidas[0]
+            elif len(preenchidas) > 1:
+                resposta = "MULTIPLA"
+            else:
+                resposta = "-"
+
+            respostas.append({"questao": questao_idx, "resposta": resposta})
 
     while len(respostas) < num_questoes:
         respostas.append({"questao": len(respostas)+1, "resposta": "-"})
@@ -119,14 +128,14 @@ if resp_file:
         else:
             resp = "-"
         certo = gabarito_base[i]
-        resultado = "✅" if resp == certo else "❌"
-        if resp == "MULTIPLA": resultado = "❌ (Múltipla)"
+        resultado = "CERTO" if resp == certo else "ERRADO"
+        if resp == "MULTIPLA": resultado = "ERRADO (Múltipla)"
         resultados.append({"Questão": questao, "Gabarito": certo, "Resposta": resp, "Resultado": resultado})
 
     df_resultados = pd.DataFrame(resultados)
     st.subheader("📊 Resultado da Correção")
     st.dataframe(df_resultados, use_container_width=True)
-    st.success(f"Total de acertos: {df_resultados['Resultado'].str.contains('✅').sum()} / {num_questoes}")
+    st.success(f"Total de acertos: {df_resultados['Resultado'].str.contains('CERTO').sum()} / {num_questoes}")
 
 # Etapa 3: Exportação
 if df_resultados is not None:
