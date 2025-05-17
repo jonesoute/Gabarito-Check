@@ -45,7 +45,7 @@ def gerar_pdf(df):
     for _, row in df.iterrows():
         linha = f"Questão {row['Questão']}: Gabarito {row['Gabarito']} - Resposta {row['Resposta']} - {row['Resultado']}"
         pdf.cell(0, 8, linha, ln=True)
-    return pdf.output(dest="S")  # Corrigido: sem .encode('latin-1')
+    return pdf.output(dest="S")
 
 # Função para detectar bolhas preenchidas por colunas com heurística refinada
 def detectar_respostas_por_coluna(imagem, num_questoes):
@@ -78,7 +78,7 @@ def detectar_respostas_por_coluna(imagem, num_questoes):
                 intensidades.append(preenchimento)
 
             max_fill = max(intensidades)
-            marcadas = [alternativas[a] for a, f in enumerate(intensidades) if f >= max_fill * 0.60]
+            marcadas = [alternativas[a] for a, f in enumerate(intensidades) if f >= max_fill * 0.6 and f > 100]
 
             if len(marcadas) == 1:
                 resposta = marcadas[0]
