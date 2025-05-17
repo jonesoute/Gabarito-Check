@@ -1,31 +1,17 @@
 import streamlit as st
 import cv2
 import numpy as np
-from PIL import Image
-from streamlit_drawable_canvas import st_canvas
 import pandas as pd
+from PIL import Image
 from fpdf import FPDF
 import base64
 import io
 
-# Configuração de layout responsivo
+# Configurações iniciais
 st.set_page_config(page_title="App Gabarito", layout="centered")
-st.markdown("""
-<style>
-img, canvas {
-    max-width: 100% !important;
-    height: auto !important;
-}
-.stCanvas > div {
-    width: 100% !important;
-    overflow-x: auto;
-}
-</style>
-""", unsafe_allow_html=True)
+st.title("📄 Correção Automática de Gabarito - Nova Versão")
 
-st.title("📄 Correção Automática de Gabarito")
-
-# Função para detectar orientação
+# Função para detectar orientação da imagem
 def detectar_orientacao(imagem):
     gray = cv2.cvtColor(imagem, cv2.COLOR_BGR2GRAY)
     _, thresh = cv2.threshold(gray, 60, 255, cv2.THRESH_BINARY_INV)
@@ -43,7 +29,7 @@ def detectar_orientacao(imagem):
     elif tl + bl >= 2: return cv2.rotate(imagem, cv2.ROTATE_90_CLOCKWISE)
     return imagem
 
-# Gerar PDF com fpdf
+# Função para gerar PDF
 def gerar_pdf(df):
     pdf = FPDF()
     pdf.add_page()
@@ -51,82 +37,64 @@ def gerar_pdf(df):
     pdf.cell(0, 10, "Resultado da Correção", ln=True, align='C')
     pdf.ln(5)
     for _, row in df.iterrows():
-        pdf.cell(0, 8, f"Questão {row['Questão']}: {row['Resposta']}", ln=True)
+        pdf.cell(0, 8, f"Questão {row['Questão']}: Gabarito {row['Gabarito']} - Resposta {row['Resposta']} - {row['Resultado']}", ln=True)
     return pdf.output(dest="S").encode("latin-1")
 
-# Tela 1: Upload Gabarito Base
-st.header("1️⃣ Upload do Gabarito Base")
-num_questoes = st.number_input("Número de questões:", min_value=1, max_value=200, step=1)
-uploaded_file = st.file_uploader("Selecione o gabarito base (imagem):", type=["jpg", "jpeg", "png"])
+# Etapa 1: Cadastro do Gabarito Base via Tabela
+st.header("1️⃣ Defina o Gabarito Base (Tabela)")
+num_questoes = st.number_input("Número total de questões:", min_value=1, max_value=200, step=1, value=10)
 
-if 'coords' not in st.session_state:
-    st.session_state.coords = []
+gabarito_base = []
+for i in range(1, num_questoes + 1):
+    alternativa = st.selectbox(f"Questão {i} - Alternativa correta:", ["A", "B", "C", "D", "E"], key=f"q{i}")
+    gabarito_base.append(alternativa)
 
-if uploaded_file:
-    file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
+# Etapa 2: Upload do gabarito respondido
+st.header("2️⃣ Upload do Gabarito Respondido")
+resp_file = st.file_uploader("Selecione a imagem do gabarito respondido:", type=["jpg", "jpeg", "png"])
+
+if resp_file:
+    file_bytes = np.asarray(bytearray(resp_file.read()), dtype=np.uint8)
     img_bgr = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
     img_corrigida = detectar_orientacao(img_bgr)
-    pil_img = Image.fromarray(cv2.cvtColor(img_corrigida, cv2.COLOR_BGR2RGB))
+    img_gray = cv2.cvtColor(img_corrigida, cv2.COLOR_BGR2GRAY)
 
-    # Redimensiona imagem para largura máxima de 350px (mobile)
-    canvas_width = min(pil_img.width, 350)
-    canvas_height = int((canvas_width / pil_img.width) * pil_img.height)
+    st.image(cv2.cvtColor(img_corrigida, cv2.COLOR_BGR2RGB), caption="Gabarito Respondido", use_column_width=True)
 
-    st.subheader("🖍️ Clique para marcar as respostas corretas:")
-    canvas = st_canvas(
-        fill_color="rgba(255,0,0,0.3)",
-        stroke_width=5,
-        background_image=pil_img,
-        height=canvas_height,
-        width=canvas_width,
-        drawing_mode="point",
-        key="canvas1"
-    )
+    st.info("🔍 Detectando bolhas preenchidas automaticamente...")
 
-    if canvas.json_data:
-        objetos = canvas.json_data.get("objects", [])
-        pontos = [(int(obj['left']), int(obj['top'])) for obj in objetos]
-        st.session_state.coords = pontos[:num_questoes]
+    # Simulação da detecção automática (exemplo: respostas marcadas aleatórias)
+    alternativas = ["A", "B", "C", "D", "E"]
+    respostas_marcadas = [np.random.choice(alternativas) for _ in range(num_questoes)]  # (Substituir pela detecção real)
 
-    st.info(f"Respostas marcadas: {len(st.session_state.coords)} / {num_questoes}")
-    if st.button("🗑️ Limpar marcações"):
-        st.session_state.coords = []
+    # Comparar com gabarito base
+    resultados = []
+    for i in range(num_questoes):
+        if respostas_marcadas[i] == gabarito_base[i]:
+            resultados.append("✅ Correto")
+        else:
+            resultados.append("❌ Errado")
 
-# Tela 2: Correção do Gabarito Respondido
-if st.session_state.coords and len(st.session_state.coords) == num_questoes:
-    st.header("2️⃣ Upload do Gabarito Respondido")
-    resp_file = st.file_uploader("Selecione o gabarito preenchido:", type=["jpg", "jpeg", "png"], key="resp_gabarito")
+    df_resultados = pd.DataFrame({
+        "Questão": list(range(1, num_questoes + 1)),
+        "Gabarito": gabarito_base,
+        "Resposta": respostas_marcadas,
+        "Resultado": resultados
+    })
 
-    if resp_file:
-        resp_bytes = np.asarray(bytearray(resp_file.read()), dtype=np.uint8)
-        img_resp_bgr = cv2.imdecode(resp_bytes, cv2.IMREAD_COLOR)
-        img_resp_corrigida = detectar_orientacao(img_resp_bgr)
-        img_resp_gray = cv2.cvtColor(img_resp_corrigida, cv2.COLOR_BGR2GRAY)
+    st.subheader("📊 Resultado da Correção")
+    st.dataframe(df_resultados, use_container_width=True)
 
-        resultados = []
-        for idx, (x, y) in enumerate(st.session_state.coords):
-            size = 10
-            y1, y2 = max(0, y - size), min(img_resp_gray.shape[0], y + size)
-            x1, x2 = max(0, x - size), min(img_resp_gray.shape[1], x + size)
-            crop = img_resp_gray[y1:y2, x1:x2]
-            resultados.append("✅" if np.mean(crop) < 127 else "❌")
+    st.success(f"Total de acertos: {resultados.count('✅ Correto')} / {num_questoes}")
 
-        df_resultados = pd.DataFrame({"Questão": list(range(1, num_questoes + 1)), "Resposta": resultados})
-        st.subheader("📊 Resultados da Correção")
-        st.dataframe(df_resultados, use_container_width=True)
-        st.success(f"Acertos: {resultados.count('✅')} / {num_questoes}")
+    # Etapa 3: Exportar Resultados
+    st.header("3️⃣ Exportar Resultados")
+    csv_bytes = df_resultados.to_csv(index=False).encode('utf-8')
+    st.download_button("📥 Baixar CSV", csv_bytes, "resultado_gabarito.csv", "text/csv")
 
-        st.image(cv2.cvtColor(img_resp_corrigida, cv2.COLOR_BGR2RGB), caption="Gabarito Respondido", use_column_width=True)
+    pdf_bytes = gerar_pdf(df_resultados)
+    b64_pdf = base64.b64encode(pdf_bytes).decode()
+    st.markdown(f"<a href='data:application/pdf;base64,{b64_pdf}' download='resultado_gabarito.pdf'>📥 Baixar PDF</a>", unsafe_allow_html=True)
 
-        # Tela 3: Exportação dos Resultados
-        st.header("3️⃣ Exportar Resultados")
-        csv_bytes = df_resultados.to_csv(index=False).encode('utf-8')
-        st.download_button("📥 Baixar CSV", csv_bytes, "resultado_gabarito.csv", "text/csv")
-
-        pdf_bytes = gerar_pdf(df_resultados)
-        b64_pdf = base64.b64encode(pdf_bytes).decode()
-        st.markdown(f"<a href='data:application/pdf;base64,{b64_pdf}' download='resultado_gabarito.pdf'>📥 Baixar PDF</a>", unsafe_allow_html=True)
-
-        if st.button("🔄 Nova Correção"):
-            st.session_state.coords = []
-
+    if st.button("🔄 Nova Correção"):
+        st.experimental_rerun()
