@@ -7,11 +7,11 @@ from fpdf import FPDF
 import base64
 import io
 
-# Configurações iniciais
+# Configuração da página
 st.set_page_config(page_title="App Gabarito", layout="centered")
-st.title("📄 Correção Automática de Gabarito - Nova Versão")
+st.title("📄 Correção Automática de Gabarito - Versão Colunas")
 
-# Função para detectar orientação da imagem
+# Função para detectar orientação da imagem e rotacionar para horizontal
 def detectar_orientacao(imagem):
     gray = cv2.cvtColor(imagem, cv2.COLOR_BGR2GRAY)
     _, thresh = cv2.threshold(gray, 60, 255, cv2.THRESH_BINARY_INV)
@@ -40,9 +40,47 @@ def gerar_pdf(df):
         pdf.cell(0, 8, f"Questão {row['Questão']}: Gabarito {row['Gabarito']} - Resposta {row['Resposta']} - {row['Resultado']}", ln=True)
     return pdf.output(dest="S").encode("latin-1")
 
-# Etapa 1: Cadastro do Gabarito Base via Tabela
+# Função para detectar bolhas preenchidas por colunas
+def detectar_respostas_por_coluna(imagem, num_questoes):
+    gray = cv2.cvtColor(imagem, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    thresh = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 11, 2)
+
+    height, width = thresh.shape
+    respostas = []
+
+    # Definir número de colunas (automático para 4 colunas)
+    colunas = 4
+    questoes_por_coluna = num_questoes // colunas
+    alternativas = ["A", "B", "C", "D", "E"]
+
+    for i in range(colunas):
+        x_ini = int((width / colunas) * i)
+        x_fim = int((width / colunas) * (i + 1))
+        coluna = thresh[:, x_ini:x_fim]
+        alt_w = coluna.shape[1] // 5
+        alt_h = coluna.shape[0] // questoes_por_coluna
+
+        for q in range(questoes_por_coluna):
+            questao_idx = i * questoes_por_coluna + q + 1
+            preenchida = ""
+            for a in range(5):
+                x1 = a * alt_w
+                y1 = q * alt_h
+                bolha = coluna[y1:y1 + alt_h, x1:x1 + alt_w]
+                media = np.mean(bolha)
+                if media < 127:
+                    if preenchida:
+                        preenchida = "MULTIPLA"  # marcação dupla
+                    else:
+                        preenchida = alternativas[a]
+            respostas.append({"questao": questao_idx, "resposta": preenchida if preenchida else "-"})
+
+    return respostas
+
+# Etapa 1: Cadastro do Gabarito Base
 st.header("1️⃣ Defina o Gabarito Base (Tabela)")
-num_questoes = st.number_input("Número total de questões:", min_value=1, max_value=200, step=1, value=10)
+num_questoes = st.number_input("Número total de questões:", min_value=1, max_value=200, step=1, value=26)
 
 gabarito_base = []
 for i in range(1, num_questoes + 1):
@@ -50,6 +88,7 @@ for i in range(1, num_questoes + 1):
     gabarito_base.append(alternativa)
 
 # Etapa 2: Upload do gabarito respondido
+df_resultados = None
 st.header("2️⃣ Upload do Gabarito Respondido")
 resp_file = st.file_uploader("Selecione a imagem do gabarito respondido:", type=["jpg", "jpeg", "png"])
 
@@ -57,37 +96,29 @@ if resp_file:
     file_bytes = np.asarray(bytearray(resp_file.read()), dtype=np.uint8)
     img_bgr = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
     img_corrigida = detectar_orientacao(img_bgr)
-    img_gray = cv2.cvtColor(img_corrigida, cv2.COLOR_BGR2GRAY)
 
     st.image(cv2.cvtColor(img_corrigida, cv2.COLOR_BGR2RGB), caption="Gabarito Respondido", use_column_width=True)
+    st.info("🔍 Detectando bolhas preenchidas...")
 
-    st.info("🔍 Detectando bolhas preenchidas automaticamente...")
+    respostas_detectadas = detectar_respostas_por_coluna(img_corrigida, num_questoes)
 
-    # Simulação da detecção automática (exemplo: respostas marcadas aleatórias)
-    alternativas = ["A", "B", "C", "D", "E"]
-    respostas_marcadas = [np.random.choice(alternativas) for _ in range(num_questoes)]  # (Substituir pela detecção real)
-
-    # Comparar com gabarito base
+    # Comparação com gabarito base
     resultados = []
     for i in range(num_questoes):
-        if respostas_marcadas[i] == gabarito_base[i]:
-            resultados.append("✅ Correto")
-        else:
-            resultados.append("❌ Errado")
+        questao = i + 1
+        resp = respostas_detectadas[i]["resposta"]
+        certo = gabarito_base[i]
+        resultado = "✅" if resp == certo else "❌"
+        if resp == "MULTIPLA": resultado = "❌ (Múltipla)"
+        resultados.append({"Questão": questao, "Gabarito": certo, "Resposta": resp, "Resultado": resultado})
 
-    df_resultados = pd.DataFrame({
-        "Questão": list(range(1, num_questoes + 1)),
-        "Gabarito": gabarito_base,
-        "Resposta": respostas_marcadas,
-        "Resultado": resultados
-    })
-
+    df_resultados = pd.DataFrame(resultados)
     st.subheader("📊 Resultado da Correção")
     st.dataframe(df_resultados, use_container_width=True)
+    st.success(f"Total de acertos: {df_resultados['Resultado'].str.contains('✅').sum()} / {num_questoes}")
 
-    st.success(f"Total de acertos: {resultados.count('✅ Correto')} / {num_questoes}")
-
-    # Etapa 3: Exportar Resultados
+# Etapa 3: Exportação
+if df_resultados is not None:
     st.header("3️⃣ Exportar Resultados")
     csv_bytes = df_resultados.to_csv(index=False).encode('utf-8')
     st.download_button("📥 Baixar CSV", csv_bytes, "resultado_gabarito.csv", "text/csv")
