@@ -78,7 +78,7 @@ def detectar_respostas_por_coluna(imagem, num_questoes):
                 intensidades.append(preenchimento)
 
             max_fill = max(intensidades)
-            marcadas = [alternativas[a] for a, f in enumerate(intensidades) if f >= max_fill * 0.85]
+            marcadas = [alternativas[a] for a, f in enumerate(intensidades) if f >= max_fill * 0.60]
 
             if len(marcadas) == 1:
                 resposta = marcadas[0]
